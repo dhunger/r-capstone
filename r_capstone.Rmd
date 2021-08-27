@@ -1,0 +1,92 @@
+---
+title: "R Capstone Project"
+output: html_notebook
+---
+INTRODUCTION
+
+In this document, I investigated the effects of search interest in well-known billionaire CEOs (Jeff Bezos, Elon Musk, and Richard Branson) on the stock prices of the companies they are best known for (Amazon, Tesla, and Virgin Galactic, respectively). To do this, I compared stock price data on these companies with Google Trends search data for their founders. Because Amazon and Tesla are especially well-known companies traded on the S&P 500, I also investigated whether there was a linear relationship between their share prices. 
+
+THE DATA
+
+In these first two cells, I created a graph of the stock prices after using the quantmod library to get data. I was only able to compare data from September 29, 2017 onwards, because this is the earliest date with Virgin Galactic stock data.
+
+```{r}
+#Import necessary libraries
+library(quantmod)
+library(dplyr)
+library(tidyverse)
+#Get stock data
+loadSymbols(c("AMZN","TSLA","SPCE"))
+```
+```{r}
+library(ggplot2)
+#Compare data from 2017-09-29 onwards
+AMZN <- tail(AMZN, n=nrow(SPCE))
+TSLA <- tail(TSLA, n=nrow(SPCE))
+#Merge stock data into a single df
+stocks <- data.frame("Amazon"=AMZN$AMZN.Close,"Tesla"=TSLA$TSLA.Close,"Virgin Galactic"=SPCE$SPCE.Close,"Date"=as.Date(row.names(as.data.frame(SPCE))))
+#Reshape data to graph it
+stocks_graphable <- stocks %>% gather(key="stock",value="value",-Date)
+#Graph stock prices
+stock_graph <- ggplot(stocks_graphable) + geom_line(aes(x=Date,y=value,color=stock)) + scale_color_discrete(name="Company", labels=c("Amazon","Virgin Galactic","Tesla")) + labs(title="Stock prices of Each Company", subtitle="From Sep. 29, 2017 onwards", y="Stock Price")
+stock_graph
+```
+In the next two cells, I used the gtrendsR library to analyze Google Trends data on Jeff Bezos, Elon Musk, and Richard Branson. I planned to collect data between September 29, 2017 to today so that the time frame would be the same as it is for the stock price data, but the gtrends function does not appear to support collecting data between a fixed start date and the current date, so I collected it through August 26, 2021 (the day before I completed this project). First, I graphed the data by relative search volume (normalized to 100), then visualized search interest by state using the maps library.
+
+Looking at these graphs, we can see that Jeff Bezos, the founder and CEO of Amazon, has usually been the most searched-for billionaire in this investigation over the past four years, especially in the state of Washington where Amazon was founded. However, Elon Musk and Richard Branson have seen their Google search volumes surge in 2021. Elon is most searched-for in the western states, particularly California, while New Mexico (the location of Virgin Galactic's Spaceport America) searches for Richard Branson the most.
+```{r}
+library(gtrendsR)
+#Create trends df
+trends_df <- gtrends(keyword=c("jeff bezos","elon musk","richard branson"), time="2017-09-29 2021-08-26")
+trends <- trends_df$interest_over_time
+trends <- trends %>% mutate(hits = as.numeric(hits)) %>% replace_na(list(hits=0))
+trends_graph <- ggplot(trends) + geom_line(aes(date,hits,color=keyword)) + scale_color_discrete(name="Billionaire", labels=c("Jeff Bezos","Elon Musk","Richard Branson")) + labs(title="Google Trends data for Well-Known Billionaire CEOs",subtitle="from Sep. 29, 2017 onwards",y="Hits (normalized)")
+trends_graph
+```
+```{r}
+library(maps)
+#Trends by state
+state_trends <- gtrends(keyword=c("jeff bezos","elon musk","richard branson"), time="2017-09-29 2021-08-26", geo = "US")
+states <- state_trends$interest_by_region
+states <- states %>% mutate(location=tolower(location))
+states_map_data <- map_data("state")
+states_map <- ggplot(data=states,aes(map_id=location)) + geom_map(aes(fill=hits), map=states_map_data) + expand_limits(x= states_map_data$long, y=states_map_data$lat) + facet_wrap(~ keyword,nrow=2,ncol=2) + labs(title="Google Trends Data for Well-Known Billionaire CEOs",subtitle="from Sep. 29, 2017 onwards",x="Longitude",y="Latitude") + scale_fill_continuous(name="Hits (normalized)")
+states_map
+```
+Now for the main question of this report: what sort of relationship is there between search interest in these high-profile, often controversial billionaires, and their respective companies? By min-max normalizing the stock prices on a 0-100 scale, we can visually compare search data and stock price. Although quantifying this effect is beyond the scope of this investigation, a visual comparison is a good way to gain some insight. 
+
+Looking at these graphs, high search volume for a given CEO appears to cause their company's stock price to either spike or plummet shortly after. For instance, when public interest in Jeff Bezos rises, Amazon's stock price tends to become more volatile. I suspect that the direction the stock price starts moving in depends on why people are looking him up (Jeff Bezos and Elon Musk, in particular, are very polarizing public figures).   
+```{r}
+#define min/max normalization function (normalize to 100)
+normalize <- function(x) {(x - min(x))*100 / (max(x) - min(x))}
+#normalize stocks data
+stocks_norm <- as.data.frame(lapply(stocks[1:3],normalize))
+stocks_norm <- stocks_norm %>% mutate(Date = stocks$Date)
+#Jeff Bezos search results vs Amazon stock price
+amazon_jeff <- ggplot() + geom_line(data=stocks_norm, aes(x=Date,y=AMZN.Close,color="Price of Amazon stock"))+ geom_line(data=filter(trends,keyword=="jeff bezos"),aes(as.Date(date),normalize(hits),color="Jeff Bezos Google Trends hits")) + labs(title="Amazon Stock vs Jeff Bezos searches", subtitle="Data normalized to 100", y="Normalized stock price/ search hits")
+amazon_jeff
+```
+```{r}
+#Elon Musk search results vs Tesla stock price
+tesla_elon <- ggplot() + geom_line(data=stocks_norm, aes(x=Date,y=TSLA.Close,color="Price of Tesla stock"))+ geom_line(data=filter(trends,keyword=="elon musk"),aes(as.Date(date),normalize(hits),color="Elon Musk Google Trends hits"))  + labs(title="Tesla Stock vs Elon Musk searches", subtitle="Data normalized to 100", y="Normalized stock price/ search hits")
+tesla_elon
+```
+```{r}
+#Richard Branson search results vs Virgin Galactic stock price
+vg_richard <- ggplot() + geom_line(data=stocks_norm, aes(x=Date,y=SPCE.Close,color="Price of Virgin Galactic stock"))+ geom_line(data=filter(trends,keyword=="richard branson"),aes(as.Date(date),normalize(hits),color="Richard Branson Google Trends hits"))  + labs(title="Virgin Galactic Stock vs Richard Branson searches", subtitle="Data normalized to 100", y="Normalized stock price/ search hits")
+vg_richard
+```
+Finally, I examined the relationship between Amazon and Tesla share prices by using a linear regression graph. There does appear to be a reasonably strong positive correlation (both stocks rose rapidly in 2020), but it is certainly not linear, so a simple linear regression model would not be very useful for further investigation. 
+```{r}
+amzn_vs_tsla <- ggplot(stocks,aes(x=AMZN.Close,y=TSLA.Close)) + geom_point() + geom_smooth(method = "lm") +
+  geom_smooth(se = FALSE, color = "red") + 
+  labs(title = "Amazon Stock vs Tesla Stock", x = "Amazon Stock Price", y = "Tesla Stock Price")
+amzn_vs_tsla
+```
+
+CONCLUSION
+
+I believe that the main takeaway from this investigation is that Amazon, Tesla, and Virgin Galactic's stock prices are all significantly affected by what their CEOs say and do in the public eye. In other words, public perception of a company's leader can have an impact on the company itself, especially when the CEO is a public figure. 
+
+If I were to continue this investigation, I could try to quantify how changes in search volume for each CEO affect each company's stock price over the following weeks. I could also use natural language processing to determine how many of these searches reflect positive or negative views to get a better sense of how public opinion affects stock prices. Finally, I could perform a more in-depth analysis on the relationship between Amazon and Tesla. 
+
